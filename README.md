@@ -11,6 +11,43 @@ No root required. TCP connect scans throughout (`-sT --unprivileged`). No raw so
 
 ---
 
+```
+  ╔════════════════════════════════════════════════════╗
+  ║   ▓▒░  F - S E C U R I T Y  ░▒▓                 ║
+  ║   NETWORK INFILTRATION SUITE                      ║
+  ║   · · · · · · · · · · · · · · · · · · · · · ·   ║
+  ║   Rootless Kali NetHunter  ·  16 modules          ║
+  ╚════════════════════════════════════════════════════╝
+
+  [SYS] Network node  : 192.168.1.100
+
+  ┌──────────────────────────────────────────────────┐
+  │  ctOS :: TOOL MATRIX                             │
+  └──────────────────────────────────────────────────┘
+
+  [01] ▶  crackmap     SMB / RDP / WinRM null-session
+  [02] ▶  fscan        Fast internal network scanner
+  [03] ▶  nmap         Service/version scan  (-sT rootless)
+  [04] ▶  ingram       Webcam auto-exploit
+  [05] ▶  rtsp-brute   RTSP stream brute-force
+  [06] ▶  nuclei       Vulnerability scan  (LAN / IoT)
+  [07] ▶  autorecon    Ping sweep + multi-tool recon
+  [08] ▶  web          Web recon suite
+  [09] ▶  iot          IoT / SCADA / Camera discovery
+  [10] ▶  brute        Credential brute-force — SSH/FTP/HTTP/SMB
+  [11] ▶  ssl          TLS/SSL certificate + vulnerability audit
+  [12] ▶  dns_ad       DNS zone transfer + AD/LDAP enumeration
+  [13] ▶  report       Compile results → HTML pentest report
+  [14] ▶  post         Post-discovery action hub
+  [15] ▶  c2           Reverse shell listener + payload generator
+  [16] ▶  exploit      CVE quick-strike → MSF launcher
+  [00] ▶  exit
+
+  >> _
+```
+
+---
+
 ## DEPLOY
 
 ```bash
