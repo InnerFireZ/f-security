@@ -107,9 +107,9 @@ if [[ "$SCANNER_TYPE" == "testssl" ]]; then
   echo
 
   case "${_mode:-1}" in
-    2) SCAN_LABEL="Full"     ; SCAN_FLAGS="" ;;
-    3) SCAN_LABEL="Certs"    ; SCAN_FLAGS="--protocols" ;;
-    *) SCAN_LABEL="Quick"    ; SCAN_FLAGS="--fast" ;;
+    2) SCAN_LABEL="Full"  ; SCAN_FLAGS="" ;;
+    3) SCAN_LABEL="Certs" ; SCAN_FLAGS="--protocols" ;;
+    *) SCAN_LABEL="Quick" ; SCAN_FLAGS="--fast" ;;
   esac
 
   printf '  %s[SYS]%s Mode    : %s%s%s\n\n' "${CYAN}" "${RESET}" "${GREEN}" "$SCAN_LABEL" "${RESET}"
@@ -146,7 +146,7 @@ _summarise() {
   fi
 }
 
-# ── Scanner runner ────────────────────────────────────────────────────────────
+# ── Scanner runner — writes terminal output to stdout (captured per-job) ──────
 _run_scan() {
   local host="$1" port="$2"
   local ep_log="$outdir/ssl_${host}_${port}.txt"
@@ -155,9 +155,9 @@ _run_scan() {
   printf '  %s──────────────────────────────────────────────%s\n\n' "${DIM}" "${RESET}"
 
   if [[ "$SCANNER_TYPE" == "testssl" ]]; then
-    # --logfile saves clean (no ANSI) output to file; terminal output stays colored
+    # --parallel: probe cipher groups concurrently within a single host scan
     # shellcheck disable=SC2086
-    "$SCANNER" $SCAN_FLAGS --quiet --logfile "$ep_log" "${host}:${port}" 2>/dev/null || true
+    "$SCANNER" $SCAN_FLAGS --parallel --quiet --logfile "$ep_log" "${host}:${port}" 2>/dev/null || true
     printf '\n  %s▶ FINDINGS%s\n' "${CYAN}${BOLD}" "${RESET}"
     _summarise "$ep_log"
   else
@@ -165,19 +165,49 @@ _run_scan() {
     printf '\n  %s▶ FINDINGS%s\n' "${CYAN}${BOLD}" "${RESET}"
     _summarise "$ep_log"
   fi
-
-  if [[ -f "$ep_log" ]]; then
-    printf '\n=== %s:%s ===\n' "$host" "$port" >> "$outfile"
-    cat "$ep_log" >> "$outfile"
-  fi
 }
 
-# ── Execute ───────────────────────────────────────────────────────────────────
+# ── Execute — parallel host scanning, ordered output ─────────────────────────
 section "SCANNING"
-printf '  %s[*]%s %d endpoint(s) queued%s\n' "${CYAN}" "${RESET}" "${#EP_HOST[@]}" "${RESET}"
+_ep_count="${#EP_HOST[@]}"
+
+if [[ $_ep_count -gt 1 ]]; then
+  printf '  %s[*]%s %d endpoint(s) — running in parallel (max 3 concurrent)%s\n\n' \
+    "${CYAN}" "${RESET}" "$_ep_count" "${RESET}"
+else
+  printf '  %s[*]%s %d endpoint queued%s\n\n' "${CYAN}" "${RESET}" "$_ep_count" "${RESET}"
+fi
+
+_PARALLEL_MAX=3
+_tmpout=()
+_pids=()
 
 for i in "${!EP_HOST[@]}"; do
-  _run_scan "${EP_HOST[$i]}" "${EP_PORT[$i]}"
+  _tmp="$outdir/.ssl_out_${i}.tmp"
+  _tmpout+=("$_tmp")
+  # Each scan writes its terminal output to a temp file; ep_log is separate
+  _run_scan "${EP_HOST[$i]}" "${EP_PORT[$i]}" > "$_tmp" 2>&1 &
+  _pids+=($!)
+  # Throttle: wait if at the concurrency cap before launching next
+  while (( $(jobs -rp | wc -l) >= _PARALLEL_MAX )); do sleep 0.3; done
+done
+
+# Wait for each job in submission order and replay its output
+for i in "${!_pids[@]}"; do
+  wait "${_pids[$i]}" 2>/dev/null || true
+  if [[ -f "${_tmpout[$i]}" ]]; then
+    cat "${_tmpout[$i]}"
+    rm -f "${_tmpout[$i]}"
+  fi
+done
+
+# Merge per-host logs into summary file in order
+for i in "${!EP_HOST[@]}"; do
+  _ep_log="$outdir/ssl_${EP_HOST[$i]}_${EP_PORT[$i]}.txt"
+  if [[ -f "$_ep_log" ]]; then
+    printf '\n=== %s:%s ===\n' "${EP_HOST[$i]}" "${EP_PORT[$i]}" >> "$outfile"
+    cat "$_ep_log" >> "$outfile"
+  fi
 done
 
 # ── Final summary ─────────────────────────────────────────────────────────────

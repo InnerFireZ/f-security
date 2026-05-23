@@ -92,7 +92,7 @@ printf '  %s└─────────────────────�
 printf '\n'
 printf '  %s[01]%s ▶  DNS        zone transfer · SRV records · PTR sweep\n' "${CYAN}" "${RESET}"
 printf '  %s[02]%s ▶  AD / LDAP  domain enum · users · shares\n'             "${CYAN}" "${RESET}"
-printf '  %s[03]%s ▶  Full       both in sequence\n'                          "${GREEN}" "${RESET}"
+printf '  %s[03]%s ▶  Full       both in parallel\n'                          "${GREEN}" "${RESET}"
 printf '\n'
 printf '  %s>>%s ' "${CYAN}" "${RESET}"
 read -r _mode </dev/tty
@@ -116,7 +116,7 @@ if [[ $RUN_DNS -eq 1 ]]; then
     "${_cmd[@]}" "$@" 2>/dev/null || true
   }
 
-  # Zone transfer
+  # Zone transfer (sequential — one per NS, output matters)
   if [[ -n "${DOMAIN}" && ${#DNS_SERVERS[@]} -gt 0 ]]; then
     printf '  %s[*]%s Zone transfer — %s\n' "${CYAN}" "${RESET}" "$DOMAIN"
     printf '=== ZONE TRANSFERS ===\n' >> "$outfile"
@@ -135,19 +135,35 @@ if [[ $RUN_DNS -eq 1 ]]; then
     printf '\n'
   fi
 
-  # SRV records — AD service pointers
+  # SRV records — fire all 6 queries in parallel, collect in order
   if [[ -n "${DOMAIN}" ]]; then
-    printf '  %s[*]%s SRV records  %s(AD service discovery)%s\n' \
+    printf '  %s[*]%s SRV records  %s(AD service discovery — parallel)%s\n' \
       "${CYAN}" "${RESET}" "${DIM}" "${RESET}"
     printf '=== SRV ===\n' >> "$outfile"
-    for _srv in \
-      "_ldap._tcp"               \
-      "_kerberos._tcp"           \
-      "_gc._tcp"                 \
-      "_kpasswd._tcp"            \
-      "_ldap._tcp.dc._msdcs"     \
-      "_kerberos._tcp.dc._msdcs"; do
-      _r=$(_dig SRV "${_srv}.${DOMAIN}")
+
+    _srv_list=(
+      "_ldap._tcp"
+      "_kerberos._tcp"
+      "_gc._tcp"
+      "_kpasswd._tcp"
+      "_ldap._tcp.dc._msdcs"
+      "_kerberos._tcp.dc._msdcs"
+    )
+    _srv_pids=()
+    _srv_files=()
+    for _srv in "${_srv_list[@]}"; do
+      _f="$outdir/.srv_${_srv//[.\/]/_}.tmp"
+      _srv_files+=("$_f")
+      _dig SRV "${_srv}.${DOMAIN}" > "$_f" 2>/dev/null &
+      _srv_pids+=($!)
+    done
+    wait "${_srv_pids[@]}" 2>/dev/null || true
+
+    for idx in "${!_srv_list[@]}"; do
+      _srv="${_srv_list[$idx]}"
+      _f="${_srv_files[$idx]}"
+      _r="$(cat "$_f" 2>/dev/null || true)"
+      rm -f "$_f"
       if [[ -n "$_r" ]]; then
         printf '  %s[+]%s %-38s %s%s%s\n' \
           "${GREEN}" "${RESET}" "${_srv}" "${CYAN}" "$_r" "${RESET}"
@@ -159,12 +175,19 @@ if [[ $RUN_DNS -eq 1 ]]; then
     printf '\n'
   fi
 
-  # NS / SOA / MX
+  # NS / SOA / MX — all 3 in parallel
   if [[ -n "${DOMAIN}" ]]; then
-    printf '  %s[*]%s NS / SOA / MX\n' "${CYAN}" "${RESET}"
+    printf '  %s[*]%s NS / SOA / MX  %s(parallel)%s\n' "${CYAN}" "${RESET}" "${DIM}" "${RESET}"
     printf '=== NS/SOA/MX ===\n' >> "$outfile"
+
     for _type in NS SOA MX; do
-      _r=$(_dig "$_type" "$DOMAIN")
+      _dig "$_type" "$DOMAIN" > "$outdir/.dns_${_type}.tmp" 2>/dev/null &
+    done
+    wait 2>/dev/null || true
+
+    for _type in NS SOA MX; do
+      _r="$(cat "$outdir/.dns_${_type}.tmp" 2>/dev/null || true)"
+      rm -f "$outdir/.dns_${_type}.tmp"
       if [[ -n "$_r" ]]; then
         printf '  %s[+]%s %-5s %s%s%s\n' "${GREEN}" "${RESET}" "$_type" "${DIM}" "$_r" "${RESET}"
         printf '%s: %s\n' "$_type" "$_r" >> "$outfile"
@@ -173,11 +196,11 @@ if [[ $RUN_DNS -eq 1 ]]; then
     printf '\n'
   fi
 
-  # Reverse PTR sweep — parallel
+  # Reverse PTR sweep — already parallel (cap 30)
   if [[ "$target" == */* ]]; then
     IFS='.' read -r _a _b _c _ <<< "${target%%/*}"
     _pfx="${_a}.${_b}.${_c}"
-    printf '  %s[*]%s PTR reverse sweep — %s.1-254  %s(parallel)%s\n' \
+    printf '  %s[*]%s PTR reverse sweep — %s.1-254  %s(30 parallel jobs)%s\n' \
       "${CYAN}" "${RESET}" "$_pfx" "${DIM}" "${RESET}"
     printf '=== PTR SWEEP ===\n' >> "$outfile"
     _ptrtmp="$outdir/.ptr_tmp"
@@ -199,11 +222,11 @@ if [[ $RUN_DNS -eq 1 ]]; then
     printf '\n'
   fi
 
-  # dnsrecon
+  # dnsrecon — std only (AXFR already done above via dig)
   if check_tool dnsrecon && [[ -n "${DOMAIN}" ]]; then
-    printf '  %s[*]%s dnsrecon std + axfr enumeration\n' "${CYAN}" "${RESET}"
+    printf '  %s[*]%s dnsrecon standard enumeration\n' "${CYAN}" "${RESET}"
     printf '=== DNSRECON ===\n' >> "$outfile"
-    dnsrecon -d "$DOMAIN" -t std,axfr ${_ns:+-n "$_ns"} 2>/dev/null \
+    dnsrecon -d "$DOMAIN" -t std ${_ns:+-n "$_ns"} 2>/dev/null \
       | tee -a "$outfile" || true
     printf '\n'
   fi
@@ -219,44 +242,72 @@ if [[ $RUN_AD -eq 1 ]]; then
     [[ -n "${_manual_dc}" ]] && DC_HOSTS+=("$_manual_dc")
   fi
 
+  # ── Per-DC enumeration — parallel when multiple DCs, capped at 2 ──────────
+  _dc_tmpout=()
+  _dc_pids=()
+
   for _dc in "${DC_HOSTS[@]}"; do
-    section "AD ENUM — $_dc"
-    printf '=== AD: %s ===\n' "$_dc" >> "$outfile"
+    _dctmp="$outdir/.dc_${_dc}.tmp"
+    _dc_tmpout+=("$_dctmp")
 
-    # Anonymous LDAP bind + user dump
-    if check_tool ldapsearch; then
-      printf '  %s[*]%s Anonymous LDAP bind...%s\n' "${CYAN}" "${RESET}" "${RESET}"
-      _ldap=$(ldapsearch -x -H "ldap://${_dc}" -b "" -s base namingContexts 2>/dev/null || true)
-      if [[ -n "$_ldap" ]]; then
-        printf '  %s[✔] Anon LDAP succeeded!%s\n' "${GREEN}" "${RESET}"
-        printf '%s\n' "$_ldap" >> "$outfile"
-        _base=$(echo "$_ldap" | grep -i "DC=" | awk '{print $2}' | head -1)
-        if [[ -n "$_base" ]]; then
-          printf '  %s[*]%s Dumping accounts from %s...%s\n' \
-            "${CYAN}" "${RESET}" "$_base" "${RESET}"
-          ldapsearch -x -H "ldap://${_dc}" -b "$_base" \
-            "(objectClass=user)" sAMAccountName 2>/dev/null \
-            | grep "^sAMAccountName:" | tee -a "$outfile" | head -40 || true
+    {
+      printf '=== AD: %s ===\n' "$_dc" >> "$outfile"
+
+      # Anonymous LDAP bind — 10 s hard cap
+      if check_tool ldapsearch; then
+        _ldap=$(timeout 10 ldapsearch -x -H "ldap://${_dc}" \
+                  -b "" -s base namingContexts 2>/dev/null || true)
+        if [[ -n "$_ldap" ]]; then
+          printf '  %s[✔] Anon LDAP succeeded — %s%s\n' "${GREEN}" "$_dc" "${RESET}"
+          printf '%s\n' "$_ldap" >> "$outfile"
+          _base=$(echo "$_ldap" | grep -i "DC=" | awk '{print $2}' | head -1)
+          if [[ -n "$_base" ]]; then
+            printf '  %s[*]%s Dumping accounts from %s...%s\n' \
+              "${CYAN}" "${RESET}" "$_base" "${RESET}"
+            timeout 20 ldapsearch -x -H "ldap://${_dc}" -b "$_base" \
+              "(objectClass=user)" sAMAccountName 2>/dev/null \
+              | grep "^sAMAccountName:" | tee -a "$outfile" | head -40 || true
+          fi
+        else
+          printf '  %s[~]%s Anon LDAP rejected — %s%s\n' "${DIM}" "${RESET}" "$_dc" "${RESET}"
         fi
-      else
-        printf '  %s[~]%s Anonymous LDAP rejected%s\n' "${DIM}" "${RESET}" "${RESET}"
       fi
-    fi
 
-    # enum4linux-ng (preferred) or enum4linux fallback
-    if check_tool enum4linux-ng; then
-      printf '\n  %s[*]%s enum4linux-ng -A %s\n' "${CYAN}" "${RESET}" "$_dc"
-      enum4linux-ng -A "$_dc" 2>/dev/null | tee -a "$outfile" || true
-    elif check_tool enum4linux; then
-      printf '\n  %s[*]%s enum4linux -a %s\n' "${CYAN}" "${RESET}" "$_dc"
-      enum4linux -a "$_dc" 2>/dev/null | tee -a "$outfile" || true
-    fi
+      # enum4linux-ng: -T 15 = 15 s per-request timeout; hard cap 180 s total
+      if check_tool enum4linux-ng; then
+        printf '\n  %s[*]%s enum4linux-ng -A -T 15 %s  %s(3 min cap)%s\n' \
+          "${CYAN}" "${RESET}" "$_dc" "${DIM}" "${RESET}"
+        timeout 180 enum4linux-ng -A -T 15 "$_dc" 2>/dev/null \
+          | tee -a "$outfile" || true
+      elif check_tool enum4linux; then
+        printf '\n  %s[*]%s enum4linux -a %s  %s(3 min cap)%s\n' \
+          "${CYAN}" "${RESET}" "$_dc" "${DIM}" "${RESET}"
+        timeout 180 enum4linux -a "$_dc" 2>/dev/null \
+          | tee -a "$outfile" || true
+      fi
 
-    # Password policy via crackmapexec
-    if check_tool crackmapexec; then
-      printf '\n  %s[*]%s Password policy (crackmapexec)...%s\n' "${CYAN}" "${RESET}" "${RESET}"
-      crackmapexec smb "$_dc" -u '' -p '' --pass-pol 2>/dev/null \
-        | tee -a "$outfile" || true
+      # Password policy via crackmapexec
+      if check_tool crackmapexec; then
+        printf '\n  %s[*]%s Password policy — %s%s\n' "${CYAN}" "${RESET}" "$_dc" "${RESET}"
+        timeout 30 crackmapexec smb "$_dc" -u '' -p '' --pass-pol 2>/dev/null \
+          | tee -a "$outfile" || true
+      fi
+
+    } > "$_dctmp" 2>&1 &
+
+    _dc_pids+=($!)
+    # Cap at 2 concurrent DC enumerations
+    while (( $(jobs -rp | wc -l) >= 2 )); do sleep 1; done
+  done
+
+  # Wait and print DC results in submission order
+  for i in "${!_dc_pids[@]}"; do
+    _dc="${DC_HOSTS[$i]}"
+    section "AD ENUM — $_dc"
+    wait "${_dc_pids[$i]}" 2>/dev/null || true
+    if [[ -f "${_dc_tmpout[$i]}" ]]; then
+      cat "${_dc_tmpout[$i]}"
+      rm -f "${_dc_tmpout[$i]}"
     fi
   done
 fi
