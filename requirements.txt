@@ -1,0 +1,11 @@
+# F-Security — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Required — core IoT/SCADA scanner
+python-nmap>=0.7.1
+
+# Optional — ARP host discovery (needs root; rootless falls back to nmap ping sweep)
+scapy>=2.5.0
+
+# Optional — more reliable default gateway detection
+netifaces>=0.11.0
