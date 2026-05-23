@@ -366,34 +366,38 @@ fi
 # ── 14. Ingram — webcam auto-exploit (module 04) ─────────────────────────────
 section "Ingram — webcam snapshot + credential exploit (auto_ingramv2.sh)"
 
-if python3 -c "import ingram" &>/dev/null 2>&1 || has ingram; then
-    skip "Ingram (already installed)"
+# Ingram is a GitHub project, not a pip package.
+# We clone it into Ingram/tool/ and run via: python3 run_ingram.py -i <targets> -o <outdir>
+INGRAM_TOOL_DIR="$SCRIPT_DIR/Ingram/tool"
+INGRAM_SCRIPT="$INGRAM_TOOL_DIR/run_ingram.py"
+
+if [[ -f "$INGRAM_SCRIPT" ]]; then
+    skip "Ingram already cloned at $INGRAM_TOOL_DIR"
 else
-    info "pip install Ingram ..."
-    if pip install --quiet --break-system-packages Ingram &>/dev/null 2>&1 \
-       || pip install --quiet Ingram &>/dev/null 2>&1; then
-        ok "Ingram"
+    if has git; then
+        start_spin "Cloning Ingram from GitHub..."
+        if git clone --quiet --depth 1 https://github.com/jorhelp/Ingram "$INGRAM_TOOL_DIR" 2>/dev/null; then
+            stop_spin; ok "Ingram cloned → $INGRAM_TOOL_DIR"
+        else
+            stop_spin; warn "Ingram clone failed — check internet connection"
+            INGRAM_TOOL_DIR=""
+        fi
     else
-        warn "Ingram pip install failed — try manually: pip install Ingram"
+        warn "git not found — cannot clone Ingram"
+        INGRAM_TOOL_DIR=""
     fi
 fi
 
-# Ingram's own Python dependencies
-for _dep_pair in "requests:requests" "PIL:Pillow" "paramiko:paramiko" "colorama:colorama" "tqdm:tqdm"; do
-    _imp="${_dep_pair%%:*}"
-    _pkg="${_dep_pair##*:}"
-    if python3 -c "import ${_imp}" &>/dev/null 2>&1; then
-        skip "$_pkg (already importable)"
+# Install Ingram's Python requirements
+if [[ -n "${INGRAM_TOOL_DIR:-}" && -f "$INGRAM_TOOL_DIR/requirements.txt" ]]; then
+    start_spin "Installing Ingram Python requirements..."
+    if pip install --quiet --break-system-packages -r "$INGRAM_TOOL_DIR/requirements.txt" &>/dev/null 2>&1 \
+       || pip install --quiet -r "$INGRAM_TOOL_DIR/requirements.txt" &>/dev/null 2>&1; then
+        stop_spin; ok "Ingram requirements installed"
     else
-        info "pip install $_pkg ..."
-        if pip install --quiet --break-system-packages "$_pkg" &>/dev/null 2>&1 \
-           || pip install --quiet "$_pkg" &>/dev/null 2>&1; then
-            ok "$_pkg"
-        else
-            warn "$_pkg install failed"
-        fi
+        stop_spin; warn "Some Ingram requirements failed — run: pip install -r $INGRAM_TOOL_DIR/requirements.txt"
     fi
-done
+fi
 
 # ── 15. socat + netcat (c2.sh listener) ──────────────────────────────────────
 section "socat + netcat — reverse shell listener (c2.sh)"

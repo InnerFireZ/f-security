@@ -5,75 +5,57 @@ set -uo pipefail
 
 banner "INGRAM — WEBCAM AUTO-EXPLOIT" "snapshot · credential attack · stream discovery"
 
-# ── Dependency check ──────────────────────────────────────────────────────────
+# ── Locate Ingram (cloned via setup-tools.sh) ────────────────────────────────
 require_tool python3 "apt install python3"
 
-# Check Ingram is installed (pip package or standalone command)
-_HAS_INGRAM=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INGRAM_SCRIPT="$SCRIPT_DIR/tool/run_ingram.py"
 _INGRAM_CMD=""
 
-if command -v ingram &>/dev/null; then
-    _HAS_INGRAM=1
-    _INGRAM_CMD="ingram"
-elif python3 -c "import ingram" &>/dev/null 2>&1; then
-    _HAS_INGRAM=1
-    _INGRAM_CMD="python3 -m ingram"
+if [[ -f "$INGRAM_SCRIPT" ]]; then
+    _INGRAM_CMD="python3 $INGRAM_SCRIPT"
 fi
 
-if [[ $_HAS_INGRAM -eq 0 ]]; then
-  printf '  %s[!]%s Ingram is not installed.%s\n\n' "${RED}" "${RESET}" "${RESET}"
-  printf '  %s[*]%s Install options:\n\n' "${CYAN}" "${RESET}"
-  printf '  %s  pip install Ingram%s\n' "${GREEN}" "${RESET}"
-  printf '  %s  pip install Ingram --break-system-packages%s\n\n' "${GREEN}" "${RESET}"
-  printf '  %s>>%s Install now? [Y/n]: ' "${CYAN}" "${RESET}"
-  read -r _do_install </dev/tty || _do_install="n"
-  if [[ "${_do_install,,}" != "n" ]]; then
-    printf '\n'
-    if pip install Ingram --break-system-packages 2>&1 | grep -qiE "Successfully installed|already satisfied"; then
-      printf '  %s[✔]%s Ingram installed%s\n\n' "${GREEN}" "${RESET}" "${RESET}"
-      _HAS_INGRAM=1
-      _INGRAM_CMD="python3 -m ingram"
+if [[ -z "$_INGRAM_CMD" ]]; then
+    printf '  %s[!]%s Ingram tool not found at %s/tool/%s\n\n' "${RED}" "${RESET}" "$SCRIPT_DIR" "${RESET}"
+    printf '  %s[*]%s Run setup-tools.sh to clone it, or clone manually:%s\n' "${CYAN}" "${RESET}" "${RESET}"
+    printf '      %sgit clone https://github.com/jorhelp/Ingram %s/tool%s\n\n' "${DIM}" "$SCRIPT_DIR" "${RESET}"
+    printf '  %s>>%s Clone now? [Y/n]: ' "${CYAN}" "${RESET}"
+    read -r _do_clone </dev/tty || _do_clone="n"
+    if [[ "${_do_clone,,}" != "n" ]]; then
+        printf '\n'
+        if git clone --quiet --depth 1 https://github.com/jorhelp/Ingram "$SCRIPT_DIR/tool" 2>&1; then
+            printf '  %s[✔]%s Ingram cloned\n\n' "${GREEN}" "${RESET}"
+            _INGRAM_CMD="python3 $INGRAM_SCRIPT"
+            # Install requirements
+            if [[ -f "$SCRIPT_DIR/tool/requirements.txt" ]]; then
+                pip install --quiet --break-system-packages \
+                    -r "$SCRIPT_DIR/tool/requirements.txt" &>/dev/null 2>&1 || \
+                pip install --quiet -r "$SCRIPT_DIR/tool/requirements.txt" &>/dev/null 2>&1 || true
+            fi
+        else
+            printf '  %s[!]%s Clone failed — check internet connection.\n\n' "${RED}" "${RESET}"
+            exit 1
+        fi
     else
-      pip install Ingram 2>&1 || true
-      if python3 -c "import ingram" &>/dev/null 2>&1; then
-        printf '  %s[✔]%s Ingram installed%s\n\n' "${GREEN}" "${RESET}" "${RESET}"
-        _HAS_INGRAM=1
-        _INGRAM_CMD="python3 -m ingram"
-      else
-        printf '  %s[!]%s Install failed — check pip output above.%s\n\n' "${RED}" "${RESET}" "${RESET}"
-        exit 1
-      fi
+        exit 0
     fi
-  else
-    exit 0
-  fi
 fi
 
-# Verify Ingram's own dependencies are present
-printf '  %s[*]%s Checking Ingram dependencies...%s\n' "${CYAN}" "${RESET}" "${RESET}"
+# Quick dependency check
 _missing_deps=()
 for _dep in requests PIL paramiko colorama tqdm; do
-  if ! python3 -c "import ${_dep}" &>/dev/null 2>&1; then
-    _missing_deps+=("$_dep")
-  fi
+    python3 -c "import ${_dep}" &>/dev/null 2>&1 || _missing_deps+=("$_dep")
 done
-
 if [[ ${#_missing_deps[@]} -gt 0 ]]; then
-  printf '  %s[~]%s Missing Python deps: %s%s%s\n' \
-    "${YELLOW}" "${RESET}" "${YELLOW}" "${_missing_deps[*]}" "${RESET}"
-  printf '  %s[*]%s Installing missing dependencies...%s\n' "${CYAN}" "${RESET}" "${RESET}"
-  # Map import names to pip package names
-  for _dep in "${_missing_deps[@]}"; do
-    case "$_dep" in
-      PIL)      _pkg="Pillow" ;;
-      *)        _pkg="$_dep" ;;
-    esac
-    pip install --quiet --break-system-packages "$_pkg" 2>/dev/null \
-      || pip install --quiet "$_pkg" 2>/dev/null \
-      || printf '  %s[!]%s Could not install %s%s\n' "${YELLOW}" "${RESET}" "$_pkg" "${RESET}"
-  done
+    printf '  %s[~]%s Installing missing deps: %s%s\n' "${YELLOW}" "${RESET}" "${_missing_deps[*]}" "${RESET}"
+    for _dep in "${_missing_deps[@]}"; do
+        [[ "$_dep" == "PIL" ]] && _pkg="Pillow" || _pkg="$_dep"
+        pip install --quiet --break-system-packages "$_pkg" &>/dev/null 2>&1 \
+            || pip install --quiet "$_pkg" &>/dev/null 2>&1 || true
+    done
 fi
-printf '  %s[✔]%s Dependencies OK%s\n\n' "${GREEN}" "${RESET}" "${RESET}"
+printf '  %s[✔]%s Ingram ready — %s%s%s\n\n' "${GREEN}" "${RESET}" "${DIM}" "$INGRAM_SCRIPT" "${RESET}"
 
 # ── Target input ──────────────────────────────────────────────────────────────
 target="$(prompt_target)"
@@ -157,7 +139,7 @@ printf '  %s[*]%s Output dir   : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$_in
 trap '[[ $_cleanup_file -eq 1 ]] && rm -f "$_ip_file" 2>/dev/null; true' EXIT INT
 
 # shellcheck disable=SC2086
-$_INGRAM_CMD --in "$_ip_file" --out "$_ingram_out" || true
+$_INGRAM_CMD -i "$_ip_file" -o "$_ingram_out" || true
 
 # ── Results summary ───────────────────────────────────────────────────────────
 printf '\n'
