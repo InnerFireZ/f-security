@@ -7,10 +7,9 @@ HTTPS_PORTS=(443 8443 9443)
 banner "WEB RECON" "whatweb · nikto · gobuster · feroxbuster"
 
 target=$(prompt_target)
-outdir=$(make_outdir)
 
-printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
-printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outdir" "${RESET}"
+# ── Existing nmap.txt? ────────────────────────────────────────────────────────
+_nmap_load="$(pick_nmap_file)"
 
 # Phase 0: find live hosts with open web ports
 _discover_web() {
@@ -35,7 +34,35 @@ _discover_web() {
   done <<< "$out"
 }
 
-mapfile -t URLS < <(_discover_web 2>/dev/null)
+# Parse web URLs from an existing nmap.txt
+_web_from_nmap() {
+  local nfile="$1" ip="" port scheme
+  while IFS= read -r line; do
+    if [[ "$line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+      ip="${BASH_REMATCH[1]}"
+    elif [[ -n "$ip" && "$line" =~ ^([0-9]+)/tcp.*open ]]; then
+      port="${BASH_REMATCH[1]}"
+      # Only emit if this is a web port
+      if [[ ",$WEB_PORTS," == *",${port},"* ]]; then
+        scheme="http"
+        for p in "${HTTPS_PORTS[@]}"; do [[ "$port" == "$p" ]] && scheme="https" && break; done
+        echo "${scheme}://${ip}:${port}"
+      fi
+    fi
+  done < "$nfile"
+}
+
+if [[ -n "$_nmap_load" ]]; then
+  outdir="${_nmap_load%%|*}"
+  _nmap_txt="${_nmap_load##*|}"
+  mapfile -t URLS < <(_web_from_nmap "$_nmap_txt")
+else
+  outdir=$(make_outdir)
+  mapfile -t URLS < <(_discover_web 2>/dev/null)
+fi
+
+printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
+printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outdir" "${RESET}"
 
 if [[ ${#URLS[@]} -eq 0 ]]; then
   printf '  %s[!] No live hosts with open web ports found.%s\n' "${YELLOW}" "${RESET}"

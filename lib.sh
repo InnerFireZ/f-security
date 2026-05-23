@@ -212,6 +212,48 @@ make_outdir() {
   echo "$dir"
 }
 
+# pick_nmap_file
+# Offers to load an existing nmap.txt from a results/ session instead of re-scanning.
+# Prints "session_dir|nmap_path" to stdout on success, empty string if skipped/none found.
+# All user-facing output goes to stderr so stdout can be captured with $(...).
+pick_nmap_file() {
+  local -a _pnf_sessions=()
+  while IFS= read -r _d; do
+    [[ -f "${_d}nmap.txt" ]] && _pnf_sessions+=("$_d")
+  done < <(ls -1dt results/*/ 2>/dev/null || true)
+
+  if [[ ${#_pnf_sessions[@]} -eq 0 ]]; then
+    echo ""; return
+  fi
+
+  printf '  %s>>%s Re-use an existing nmap.txt? [y/N]: ' "${CYAN}" "${RESET}" >&2
+  read -r _pnf_ans </dev/tty
+  if [[ "${_pnf_ans,,}" != "y" ]]; then
+    echo ""; return
+  fi
+
+  printf '\n  %s[+]%s Sessions with nmap.txt:\n\n' "${GREEN}" "${RESET}" >&2
+  local _pnf_i
+  for _pnf_i in "${!_pnf_sessions[@]}"; do
+    local _pnf_ts="${_pnf_sessions[$_pnf_i]%/}"; _pnf_ts="${_pnf_ts##*/}"
+    printf '  %s[%02d]%s  %s\n' "${CYAN}" "$(( _pnf_i + 1 ))" "${RESET}" "$_pnf_ts" >&2
+  done
+  printf '\n  %s>>%s Select [1]: ' "${CYAN}" "${RESET}" >&2
+  read -r _pnf_pick </dev/tty
+  _pnf_pick="${_pnf_pick:-1}"
+
+  if ! [[ "$_pnf_pick" =~ ^[0-9]+$ ]] || \
+     (( _pnf_pick < 1 || _pnf_pick > ${#_pnf_sessions[@]} )); then
+    printf '  %s[!]%s Invalid selection — running fresh scan.\n\n' "${RED}" "${RESET}" >&2
+    echo ""; return
+  fi
+
+  local _pnf_dir="${_pnf_sessions[$(( _pnf_pick - 1 ))]}"
+  printf '  %s[✔]%s Using %s%snmap.txt%s\n\n' \
+    "${GREEN}" "${RESET}" "${DIM}" "$_pnf_dir" "${RESET}" >&2
+  printf '%s|%snmap.txt' "${_pnf_dir%/}" "$_pnf_dir"
+}
+
 # prompt_target
 # Prints the chosen target network CIDR or IP.
 # Reads TARGET env var if already set, otherwise shows active interfaces.

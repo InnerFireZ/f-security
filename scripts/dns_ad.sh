@@ -10,7 +10,15 @@ require_tool nmap "apt install nmap"
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 target="$(prompt_target)"
-outdir="$(make_outdir)"
+
+# ── Existing nmap.txt? ────────────────────────────────────────────────────────
+_nmap_load="$(pick_nmap_file)"
+
+if [[ -n "$_nmap_load" ]]; then
+  outdir="${_nmap_load%%|*}"
+else
+  outdir="$(make_outdir)"
+fi
 outfile="$outdir/dns_ad.txt"
 : > "$outfile"
 
@@ -27,40 +35,64 @@ read -r DOMAIN </dev/tty
 printf '  %s[SYS]%s Domain  : %s%s%s\n\n' \
   "${CYAN}" "${RESET}" "${GREEN}" "${DOMAIN:-<not set>}" "${RESET}"
 
-# ── Infrastructure scan ───────────────────────────────────────────────────────
-section "INFRASTRUCTURE SCAN"
-printf '  %s[*]%s Scanning %s for DNS / DC services...%s\n' "${CYAN}" "${RESET}" "$target" "${RESET}"
-
-start_spin "nmap running"
-mapfile -t _scan < <(
-  nmap -sT --unprivileged -Pn -n -T4 \
-       -p "53,88,389,445,636,3268,3269" --open \
-       "$target" 2>/dev/null
-)
-stop_spin
-
 declare -a DNS_SERVERS=()
 declare -a DC_HOSTS=()
 declare -A DC_PORTS=()
 
-_cur=""
-for _line in "${_scan[@]}"; do
-  if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-    _cur="${BASH_REMATCH[1]}"
-  elif [[ -n "${_cur}" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
-    _p="${BASH_REMATCH[1]}"
-    if [[ "$_p" == "53" ]]; then
-      _seen=0
-      for _h in "${DNS_SERVERS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
-      [[ $_seen -eq 0 ]] && DNS_SERVERS+=("$_cur")
-    else
-      _seen=0
-      for _h in "${DC_HOSTS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
-      [[ $_seen -eq 0 ]] && DC_HOSTS+=("$_cur")
-      DC_PORTS["$_cur"]+="${_p} "
+# ── Infrastructure scan (or parse existing nmap.txt) ─────────────────────────
+if [[ -n "$_nmap_load" ]]; then
+  section "INFRASTRUCTURE SCAN  (from nmap.txt)"
+  _nmap_txt="${_nmap_load##*|}"
+  _cur=""
+  while IFS= read -r _line; do
+    if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+      _cur="${BASH_REMATCH[1]}"
+    elif [[ -n "$_cur" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
+      _p="${BASH_REMATCH[1]}"
+      if [[ "$_p" == "53" ]]; then
+        _seen=0
+        for _h in "${DNS_SERVERS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
+        [[ $_seen -eq 0 ]] && DNS_SERVERS+=("$_cur")
+      elif [[ ",$_p," == *",88,"* || ",$_p," == *",389,"* || ",$_p," == *",445,"* || \
+              ",$_p," == *",636,"* || ",$_p," == *",3268,"* || ",$_p," == *",3269,"* ]]; then
+        _seen=0
+        for _h in "${DC_HOSTS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
+        [[ $_seen -eq 0 ]] && DC_HOSTS+=("$_cur")
+        DC_PORTS["$_cur"]+="${_p} "
+      fi
     fi
-  fi
-done
+  done < "$_nmap_txt"
+else
+  section "INFRASTRUCTURE SCAN"
+  printf '  %s[*]%s Scanning %s for DNS / DC services...%s\n' "${CYAN}" "${RESET}" "$target" "${RESET}"
+
+  start_spin "nmap running"
+  mapfile -t _scan < <(
+    nmap -sT --unprivileged -Pn -n -T4 \
+         -p "53,88,389,445,636,3268,3269" --open \
+         "$target" 2>/dev/null
+  )
+  stop_spin
+
+  _cur=""
+  for _line in "${_scan[@]}"; do
+    if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+      _cur="${BASH_REMATCH[1]}"
+    elif [[ -n "${_cur}" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
+      _p="${BASH_REMATCH[1]}"
+      if [[ "$_p" == "53" ]]; then
+        _seen=0
+        for _h in "${DNS_SERVERS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
+        [[ $_seen -eq 0 ]] && DNS_SERVERS+=("$_cur")
+      else
+        _seen=0
+        for _h in "${DC_HOSTS[@]}"; do [[ "$_h" == "$_cur" ]] && _seen=1; done
+        [[ $_seen -eq 0 ]] && DC_HOSTS+=("$_cur")
+        DC_PORTS["$_cur"]+="${_p} "
+      fi
+    fi
+  done
+fi
 
 printf '\n'
 if [[ ${#DNS_SERVERS[@]} -gt 0 ]]; then

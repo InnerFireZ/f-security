@@ -9,15 +9,34 @@ banner "NUCLEI" "fast vulnerability scanner · LAN / IoT optimised"
 
 # ── Target ────────────────────────────────────────────────────────────────────
 target="$(prompt_target)"
-outdir="$(make_outdir)"
-outfile="$outdir/nuclei.txt"
-hosts_file="$outdir/alive_hosts.txt"
-scan_file="$outdir/scan_targets.txt"
-: > "$hosts_file"
-: > "$scan_file"
 
-printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
-printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outfile" "${RESET}"
+# ── Existing nmap.txt? ────────────────────────────────────────────────────────
+_nmap_load="$(pick_nmap_file)"
+if [[ -n "$_nmap_load" ]]; then
+  outdir="${_nmap_load%%|*}"
+  _nmap_txt="${_nmap_load##*|}"
+  outfile="$outdir/nuclei.txt"
+  hosts_file="$outdir/alive_hosts.txt"
+  scan_file="$outdir/scan_targets.txt"
+  : > "$scan_file"
+  awk '/report for/{ip=$NF} /\/tcp.*open/{print ip}' "$_nmap_txt" \
+    | sort -u > "$scan_file"
+  _loaded=$(wc -l < "$scan_file")
+  printf '  %s[SYS]%s Target  : %s%s%s  %s(from nmap.txt — %d host(s))%s\n' \
+    "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}" "${DIM}" "$_loaded" "${RESET}"
+  printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outfile" "${RESET}"
+  _skip_discovery=1
+else
+  outdir="$(make_outdir)"
+  outfile="$outdir/nuclei.txt"
+  hosts_file="$outdir/alive_hosts.txt"
+  scan_file="$outdir/scan_targets.txt"
+  : > "$hosts_file"
+  : > "$scan_file"
+  printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
+  printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outfile" "${RESET}"
+  _skip_discovery=0
+fi
 
 # ── Template update ───────────────────────────────────────────────────────────
 printf '  %s>>%s Update nuclei templates? [y/N]: ' "${CYAN}" "${RESET}"
@@ -36,6 +55,8 @@ fi
 COMMON_PORTS="21,22,23,25,53,80,443,445,554,1883,3389,8080,8443,8554,9100"
 MAX_PING_JOBS=50
 PING_TIMEOUT=1
+
+if [[ "$_skip_discovery" -eq 0 ]]; then
 
 if [[ "$target" == */* ]]; then
     # ── CIDR path ─────────────────────────────────────────────────────────────
@@ -117,6 +138,8 @@ else
     printf '  %s[+]%s %d open port(s) on %s%s\n' "${GREEN}" "${RESET}" "$open_count" "$target" "${RESET}"
     echo "$target" > "$scan_file"
 fi
+
+fi  # _skip_discovery
 
 # ── Validate we have something to scan ───────────────────────────────────────
 scan_count=$(wc -l < "$scan_file")

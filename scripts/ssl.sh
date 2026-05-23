@@ -33,39 +33,62 @@ printf '  %s[SYS]%s Scanner : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$SCANNE
 
 # ── Target & output ───────────────────────────────────────────────────────────
 target="$(prompt_target)"
-outdir="$(make_outdir)"
-outfile="$outdir/ssl.txt"
-: > "$outfile"
 
-printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
-printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outfile" "${RESET}"
+# ── Existing nmap.txt? ────────────────────────────────────────────────────────
+_nmap_load="$(pick_nmap_file)"
 
-# ── Endpoint discovery ────────────────────────────────────────────────────────
 HTTPS_PORTS="443,4443,8443,9443"
-
-section "ENDPOINT DISCOVERY"
-printf '  %s[*]%s Scanning %s for TLS endpoints...%s\n' "${CYAN}" "${RESET}" "$target" "${RESET}"
-
-start_spin "nmap scan running"
-mapfile -t _scan < <(
-  nmap -sT --unprivileged -Pn -n -T4 \
-       -p "$HTTPS_PORTS" --open \
-       "$target" 2>/dev/null
-)
-stop_spin
 
 declare -a EP_HOST=()
 declare -a EP_PORT=()
 
-_cur=""
-for _line in "${_scan[@]}"; do
-  if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-    _cur="${BASH_REMATCH[1]}"
-  elif [[ -n "${_cur}" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
-    EP_HOST+=("$_cur")
-    EP_PORT+=("${BASH_REMATCH[1]}")
-  fi
-done
+if [[ -n "$_nmap_load" ]]; then
+  outdir="${_nmap_load%%|*}"
+  _nmap_txt="${_nmap_load##*|}"
+  outfile="$outdir/ssl.txt"
+  : > "$outfile"
+
+  section "ENDPOINT DISCOVERY  (from nmap.txt)"
+  _cur=""
+  while IFS= read -r _line; do
+    if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+      _cur="${BASH_REMATCH[1]}"
+    elif [[ -n "$_cur" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
+      _p="${BASH_REMATCH[1]}"
+      if [[ ",$HTTPS_PORTS," == *",$_p,"* ]]; then
+        EP_HOST+=("$_cur"); EP_PORT+=("$_p")
+      fi
+    fi
+  done < "$_nmap_txt"
+else
+  outdir="$(make_outdir)"
+  outfile="$outdir/ssl.txt"
+  : > "$outfile"
+
+  section "ENDPOINT DISCOVERY"
+  printf '  %s[*]%s Scanning %s for TLS endpoints...%s\n' "${CYAN}" "${RESET}" "$target" "${RESET}"
+
+  start_spin "nmap scan running"
+  mapfile -t _scan < <(
+    nmap -sT --unprivileged -Pn -n -T4 \
+         -p "$HTTPS_PORTS" --open \
+         "$target" 2>/dev/null
+  )
+  stop_spin
+
+  _cur=""
+  for _line in "${_scan[@]}"; do
+    if [[ "$_line" =~ scan\ report\ for\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+      _cur="${BASH_REMATCH[1]}"
+    elif [[ -n "${_cur}" && "$_line" =~ ^([0-9]+)/tcp.*open ]]; then
+      EP_HOST+=("$_cur")
+      EP_PORT+=("${BASH_REMATCH[1]}")
+    fi
+  done
+fi
+
+printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
+printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$outfile" "${RESET}"
 
 if [[ ${#EP_HOST[@]} -eq 0 ]]; then
   printf '\n  %s[!]%s No TLS ports found on %s.\n' "${YELLOW}" "${RESET}" "$target"
