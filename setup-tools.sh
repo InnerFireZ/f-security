@@ -27,6 +27,8 @@ warn() { printf "  ${YELLOW}[!]${RESET} %s\n" "$*"; _warn=$(( _warn + 1 )); }
 info() { printf "  ${CYAN}[*]${RESET} %s\n"   "$*"; }
 has()  { command -v "$1" &>/dev/null; }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ── Spinner ───────────────────────────────────────────────────────────────────
 _spin_pid=""
 start_spin() {
