@@ -61,7 +61,9 @@ printf '  %s[✔]%s Ingram ready — %s%s%s\n\n' "${GREEN}" "${RESET}" "${DIM}" 
 target="$(prompt_target)"
 outdir="$(make_outdir)"
 _ingram_out="${outdir}/ingram_out"
-mkdir -p "$_ingram_out"
+# Ingram only creates snapshots/ when ingram_out/ does not yet exist.
+# Pre-creating both prevents FileNotFoundError in SnapshotPipeline.__init__.
+mkdir -p "$_ingram_out/snapshots"
 
 printf '  %s[SYS]%s Target  : %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "$target" "${RESET}"
 printf '  %s[SYS]%s Output  : %s%s%s\n\n' "${CYAN}" "${RESET}" "${DIM}" "$_ingram_out" "${RESET}"
