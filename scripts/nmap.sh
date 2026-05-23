@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 require_tool nmap
 
 banner "NMAP — SERVICE SCANNER" "rootless TCP connect · -sT --unprivileged"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ping sweep → AutoRecon (TCP only, rootless-safe)
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 require_tool autorecon "pip install git+https://github.com/Tib3rius/AutoRecon.git"
 
 banner "AUTORECON" "ping sweep + automated multi-tool recon · rootless TCP"

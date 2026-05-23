@@ -89,22 +89,22 @@ while true; do
   printf '  %s>>%s ' "${CYAN}" "${RESET}"
   read -r choice </dev/tty
   case "$choice" in
-    1) run_script "crackmap.sh" ;;
-    2) run_script "fscan.sh" ;;
-    3) run_script "nmap.sh" ;;
+    1) run_script "scripts/crackmap.sh" ;;
+    2) run_script "scripts/fscan.sh" ;;
+    3) run_script "scripts/nmap.sh" ;;
     4) run_script "Ingram/auto_ingramv2.sh" ;;
-    5) run_script "rtsp_brute_open.sh" ;;
-    6) run_script "nuclei.sh" ;;
-    7) run_script "autorecon.sh" ;;
-    8) run_script "web.sh" ;;
-    9)  run_script "iot.sh" ;;
-    10) run_script "brute.sh" ;;
-    11) run_script "ssl.sh" ;;
-    12) run_script "dns_ad.sh" ;;
-    13) run_script "report.sh" ;;
-    14) run_script "post.sh" ;;
-    15) run_script "c2.sh" ;;
-    16) run_script "exploit.sh" ;;
+    5) run_script "scripts/rtsp_brute_open.sh" ;;
+    6) run_script "scripts/nuclei.sh" ;;
+    7) run_script "scripts/autorecon.sh" ;;
+    8) run_script "scripts/web.sh" ;;
+    9)  run_script "scripts/iot.sh" ;;
+    10) run_script "scripts/brute.sh" ;;
+    11) run_script "scripts/ssl.sh" ;;
+    12) run_script "scripts/dns_ad.sh" ;;
+    13) run_script "scripts/report.sh" ;;
+    14) run_script "scripts/post.sh" ;;
+    15) run_script "scripts/c2.sh" ;;
+    16) run_script "scripts/exploit.sh" ;;
     0)  printf '  %s[!] Connection terminated.%s\n\n' "${RED}" "${RESET}"; exit 0 ;;
     *)  printf '  %s[!] Invalid option — enter 00-16%s\n\n' "${YELLOW}" "${RESET}" ;;
   esac

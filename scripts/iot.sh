@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # IoT / SCADA / Camera device discovery — wrapper for recon_iot_scada.py
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 
 SCRIPT_DIR="$(dirname "$0")"
-PYFILE="$SCRIPT_DIR/recon_iot_scada.py"
-OUI_FILE="$SCRIPT_DIR/oui.txt"
+PYFILE="$SCRIPT_DIR/../recon_iot_scada.py"
+OUI_FILE="$SCRIPT_DIR/../oui.txt"
 
 require_tool python3 "pkg install python"
 require_tool nmap    "pkg install nmap"

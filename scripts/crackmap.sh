@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 require_tool crackmapexec "pip install crackmapexec"
 
 banner "CRACKMAPEXEC" "SMB / RDP / WinRM null-session enumeration"

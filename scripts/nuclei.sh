@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nuclei.sh — Nuclei LAN/IoT vulnerability scanner (rootless Android optimised)
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 require_tool nuclei "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
 
 set -u

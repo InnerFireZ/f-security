@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 
 WEB_PORTS="80,81,82,443,8000,8001,8008,8080,8081,8443,8888,9090,9443"
 HTTPS_PORTS=(443 8443 9443)

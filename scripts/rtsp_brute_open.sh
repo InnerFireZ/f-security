@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 require_tool nmap
 require_tool mpv
 
@@ -21,7 +21,7 @@ for target_ip in $result; do
         printf '  %s──────────────────────────────────────────────%s\n' "${DIM}" "${RESET}"
         echo "$rtsp_url" | tee -a "$logfile"
         mpv "$rtsp_url" --no-audio --no-video
-    done < "$(dirname "$0")/routes.txt"
+    done < "$(dirname "$0")/../routes.txt"
 done
 
 printf '\n  %s[SYS]%s IPs found: %s%s%s\n' "${CYAN}" "${RESET}" "${GREEN}" "${result:-none}" "${RESET}"
