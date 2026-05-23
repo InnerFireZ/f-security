@@ -1,42 +1,40 @@
 #!/usr/bin/env bash
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║   F-Security — Dependency Installer                                         ║
-# ║   Installs all tools needed by the project on rootless Kali / NetHunter.   ║
-# ║   Safe to re-run — already-installed tools are skipped.                    ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-set -euo pipefail
+set -uo pipefail
 
-# ── Colours ───────────────────────────────────────────────────────────────────
-RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'
-CYAN='\033[1;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+# ── Colours — $'...' so escape codes are real bytes, not literal backslashes ──
+RED=$'\033[1;31m';  GREEN=$'\033[1;32m'; YELLOW=$'\033[1;33m'
+CYAN=$'\033[1;36m'; BOLD=$'\033[1m';     DIM=$'\033[2m';    RESET=$'\033[0m'
 
-PASS="${GREEN}[✔]${RESET}"
-FAIL="${RED}[✘]${RESET}"
-SKIP="${YELLOW}[~]${RESET}"
-INFO="${CYAN}[*]${RESET}"
+# ── Banner — first thing printed, before anything can fail ────────────────────
+printf '\n'
+printf '  %s╔════════════════════════════════════════════════════╗%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '  %s║   ▓▒░  F - S E C U R I T Y  ░▒▓                 ║%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '  %s║   DEPENDENCY INSTALLER                            ║%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '  %s║   · · · · · · · · · · · · · · · · · · · · · ·   ║%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '  %s║   Safe to re-run — installed tools are skipped   ║%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '  %s╚════════════════════════════════════════════════════╝%s\n' "${CYAN}${BOLD}" "${RESET}"
+printf '\n'
 
 # ── Counters ──────────────────────────────────────────────────────────────────
 _ok=0; _skip=0; _fail=0; _warn=0
 FAILED_ITEMS=()
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Output helpers ────────────────────────────────────────────────────────────
+ok()   { printf "  ${GREEN}[✔]${RESET} %s\n" "$*"; _ok=$(( _ok + 1 )); }
+skip() { printf "  ${YELLOW}[~]${RESET} %s\n" "$*"; _skip=$(( _skip + 1 )); }
+fail() { printf "  ${RED}[✘]${RESET} %s\n"   "$*"; _fail=$(( _fail + 1 )); FAILED_ITEMS+=("$*"); }
+warn() { printf "  ${YELLOW}[!]${RESET} %s\n" "$*"; _warn=$(( _warn + 1 )); }
+info() { printf "  ${CYAN}[*]${RESET} %s\n"   "$*"; }
+has()  { command -v "$1" &>/dev/null; }
 
-ok()   { echo -e "  ${PASS} $*"; _ok=$(( _ok + 1 )); }
-skip() { echo -e "  ${SKIP} $*"; _skip=$(( _skip + 1 )); }
-fail() { echo -e "  ${FAIL} $*"; _fail=$(( _fail + 1 )); FAILED_ITEMS+=("$*"); }
-warn() { echo -e "  ${YELLOW}[!]${RESET} $*"; _warn=$(( _warn + 1 )); }
-info() { echo -e "  ${INFO} $*"; }
-
-has() { command -v "$1" &>/dev/null; }
-
-# ── Spinner (slow ops only) ───────────────────────────────────────────────────
+# ── Spinner ───────────────────────────────────────────────────────────────────
 _spin_pid=""
 start_spin() {
     local msg="$1"
-    ( local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-      local i=0
+    ( frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+      i=0
       while true; do
-          printf "\r  \033[1;36m%s\033[0m %s" "${frames[$i]}" "$msg"
+          printf "\r  ${CYAN}%s${RESET} %s" "${frames[$i]}" "$msg"
           sleep 0.12
           i=$(( (i + 1) % 10 ))
       done ) &
@@ -49,12 +47,20 @@ stop_spin() {
     printf '\r\033[K'
     _spin_pid=""
 }
-trap 'stop_spin 2>/dev/null || true' EXIT INT TERM
 
-# Print section header
+# ── Signal handling ───────────────────────────────────────────────────────────
+_on_interrupt() {
+    stop_spin 2>/dev/null || true
+    printf '\n\n  %s[!] Interrupted — setup did not complete.%s\n\n' "${RED}" "${RESET}"
+    exit 130
+}
+trap '_on_interrupt' INT TERM
+trap 'stop_spin 2>/dev/null || true' EXIT
+
+# ── Section header ────────────────────────────────────────────────────────────
 section() {
-    printf '\n  %s▶ %s%s\n' "${CYAN}${BOLD}" "$*" "${RESET}"
-    printf '  %s──────────────────────────────────────────────%s\n' "${DIM}" "${RESET}"
+    printf '\n  %s▶  %s%s\n' "${CYAN}${BOLD}" "$*" "${RESET}"
+    printf '  %s────────────────────────────────────────────────%s\n' "${DIM}" "${RESET}"
 }
 
 # Install one or more apt packages, skipping already-installed ones.
@@ -120,26 +126,20 @@ detect_env() {
     if has apt-get; then
         PKG_MGR="apt"
     elif has pkg; then
-        PKG_MGR="pkg"      # Termux
+        PKG_MGR="pkg"
     else
-        echo -e "${RED}[!] No supported package manager found (apt / pkg).${RESET}"
+        printf '  %s[!] No supported package manager found (apt / pkg).%s\n' "${RED}" "${RESET}"
         exit 1
     fi
 
     OS_PRETTY=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo "Unknown")
     ARCH=$(uname -m)
 
-    printf '\n'
-    printf '  %s╔════════════════════════════════════════════════════╗%s\n' "${CYAN}${BOLD}" "${RESET}"
-    printf '  %s║   ▓▒░  F - S E C U R I T Y  ░▒▓                 ║%s\n' "${CYAN}${BOLD}" "${RESET}"
-    printf '  %s║   DEPENDENCY INSTALLER  ·  14 modules            ║%s\n' "${CYAN}${BOLD}" "${RESET}"
-    printf '  %s║   · · · · · · · · · · · · · · · · · · · · · ·   ║%s\n' "${CYAN}${BOLD}" "${RESET}"
-    printf '  %s╚════════════════════════════════════════════════════╝%s\n' "${CYAN}${BOLD}" "${RESET}"
-    printf '\n'
     printf '  %s[SYS]%s OS   : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "${OS_PRETTY}" "${RESET}"
-    printf '  %s[SYS]%s Arch : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "${ARCH}" "${RESET}"
-    printf '  %s[SYS]%s Pkg  : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "${PKG_MGR}" "${RESET}"
-    printf '  %s[SYS]%s User : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "$(whoami)" "${RESET}"
+    printf '  %s[SYS]%s Arch : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "${ARCH}"      "${RESET}"
+    printf '  %s[SYS]%s Pkg  : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "${PKG_MGR}"   "${RESET}"
+    printf '  %s[SYS]%s User : %s%s%s\n' "${CYAN}" "${RESET}" "${DIM}" "$(whoami)"    "${RESET}"
+    printf '\n'
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
